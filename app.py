@@ -1,203 +1,200 @@
-from flask import Flask, request, render_template
+import streamlit as st
 import pandas as pd
-import random
-from flask_sqlalchemy import SQLAlchemy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-app = Flask(__name__)
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(
+    page_title="AI Product Recommender",
+    page_icon="🛒",
+    layout="wide"
+)
 
-# load files===========================================================================================================
-trending_products = pd.read_csv("models/trending_products.csv")
-train_data = pd.read_csv("models/clean_data.csv")
+# ---------------- IMAGE SIZE FIX ----------------
+st.markdown("""
+<style>
+img {
+    height: 220px;
+    object-fit: contain;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# database configuration---------------------------------------
-app.secret_key = "secretkey"
-app.config['SQLALCHEMY_DATABASE_URI'] = "mysql://root:@localhost/ecom"
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+# ---------------- LOAD DATA ----------------
+@st.cache_data
+def load_data():
+    trending = pd.read_csv("models/trending_products.csv")
+    data = pd.read_csv("models/clean_data.csv")
+    return trending, data
 
+trending_products, train_data = load_data()
 
-# Define your model class for the 'signup' table
-class Signup(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), nullable=False)
-    password = db.Column(db.String(100), nullable=False)
+# ---------------- FIX IMAGE URLS ----------------
+train_data["ImageURL"] = train_data["ImageURL"].astype(str).apply(lambda x: x.split("|")[0])
+trending_products["ImageURL"] = trending_products["ImageURL"].astype(str).apply(lambda x: x.split("|")[0])
 
-# Define your model class for the 'signup' table
-class Signin(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
-    password = db.Column(db.String(100), nullable=False)
+# ---------------- FEATURE ENGINEERING ----------------
+train_data["Tags"] = (
+    train_data["Category"].astype(str) + " " +
+    train_data["Brand"].astype(str) + " " +
+    train_data["Name"].astype(str)
+)
 
+# ---------------- BUILD SIMILARITY MATRIX ----------------
+@st.cache_resource
+def build_similarity(data):
 
-# Recommendations functions============================================================================================
-# Function to truncate product name
-def truncate(text, length):
-    if len(text) > length:
-        return text[:length] + "..."
-    else:
-        return text
+    tfidf = TfidfVectorizer(stop_words="english")
 
+    tfidf_matrix = tfidf.fit_transform(data["Tags"])
 
-def content_based_recommendations(train_data, item_name, top_n=10):
-    # Check if the item name exists in the training data
-    if item_name not in train_data['Name'].values:
-        print(f"Item '{item_name}' not found in the training data.")
+    similarity = cosine_similarity(tfidf_matrix)
+
+    return similarity
+
+similarity_matrix = build_similarity(train_data)
+
+# ---------------- RECOMMEND FUNCTION ----------------
+def recommend(product):
+
+    if product not in train_data["Name"].values:
         return pd.DataFrame()
 
-    # Create a TF-IDF vectorizer for item descriptions
-    tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+    index = train_data[train_data["Name"] == product].index[0]
 
-    # Apply TF-IDF vectorization to item descriptions
-    tfidf_matrix_content = tfidf_vectorizer.fit_transform(train_data['Tags'])
+    scores = list(enumerate(similarity_matrix[index]))
 
-    # Calculate cosine similarity between items based on descriptions
-    cosine_similarities_content = cosine_similarity(tfidf_matrix_content, tfidf_matrix_content)
+    scores = sorted(scores, key=lambda x: x[1], reverse=True)
 
-    # Find the index of the item
-    item_index = train_data[train_data['Name'] == item_name].index[0]
+    scores = scores[1:21]  # always generate top 20
 
-    # Get the cosine similarity scores for the item
-    similar_items = list(enumerate(cosine_similarities_content[item_index]))
+    indices = [i[0] for i in scores]
 
-    # Sort similar items by similarity score in descending order
-    similar_items = sorted(similar_items, key=lambda x: x[1], reverse=True)
-
-    # Get the top N most similar items (excluding the item itself)
-    top_similar_items = similar_items[1:top_n+1]
-
-    # Get the indices of the top similar items
-    recommended_item_indices = [x[0] for x in top_similar_items]
-
-    # Get the details of the top similar items
-    recommended_items_details = train_data.iloc[recommended_item_indices][['Name', 'ReviewCount', 'Brand', 'ImageURL', 'Rating']]
-
-    return recommended_items_details
-# routes===============================================================================
-# List of predefined image URLs
-random_image_urls = [
-    "img_1.png",
-    "img_2.png",
-    "img_3.png",
-    "img_4.png",
-    "img_5.png",
-    "img_6.png",
-    "img_7.png",
-    "img_8.png",
-]
-
-
-@app.route("/")
-def index():
-    # Create a list of random image URLs for each product
-    random_product_image_urls = [random.choice(random_image_urls) for _ in range(len(trending_products))]
-    price = [40, 50, 60, 70, 100, 122, 106, 50, 30, 50]
-    return render_template('index.html',trending_products=trending_products.head(8),truncate = truncate,
-                           random_product_image_urls=random_product_image_urls,
-                           random_price = random.choice(price))
-
-@app.route("/main")
-def main():
-    return render_template('main.html',
-        content_based_rec=pd.DataFrame() ) # empty datafram)
-
-
-# routes
-@app.route("/index")
-def indexredirect():
-    # Create a list of random image URLs for each product
-    random_product_image_urls = [random.choice(random_image_urls) for _ in range(len(trending_products))]
-    price = [40, 50, 60, 70, 100, 122, 106, 50, 30, 50]
-    return render_template('index.html', trending_products=trending_products.head(8), truncate=truncate,
-                           random_product_image_urls=random_product_image_urls,
-                           random_price=random.choice(price))
-
-@app.route("/signup", methods=['POST','GET'])
-def signup():
-    if request.method=='POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-
-        new_signup = Signup(username=username, email=email, password=password)
-        db.session.add(new_signup)
-        db.session.commit()
-
-        # Create a list of random image URLs for each product
-        random_product_image_urls = [random.choice(random_image_urls) for _ in range(len(trending_products))]
-        price = [40, 50, 60, 70, 100, 122, 106, 50, 30, 50]
-        return render_template('index.html', trending_products=trending_products.head(8), truncate=truncate,
-                               random_product_image_urls=random_product_image_urls, random_price=random.choice(price),
-                               signup_message='User signed up successfully!'
-                               )
-
-# Route for signup page
-@app.route('/signin', methods=['POST', 'GET'])
-def signin():
-    if request.method == 'POST':
-        username = request.form['signinUsername']
-        password = request.form['signinPassword']
-        new_signup = Signin(username=username,password=password)
-        db.session.add(new_signup)
-        db.session.commit()
-
-        # Create a list of random image URLs for each product
-        random_product_image_urls = [random.choice(random_image_urls) for _ in range(len(trending_products))]
-        price = [40, 50, 60, 70, 100, 122, 106, 50, 30, 50]
-        return render_template('index.html', trending_products=trending_products.head(8), truncate=truncate,
-                               random_product_image_urls=random_product_image_urls, random_price=random.choice(price),
-                               signup_message='User signed in successfully!'
-                               )
-@app.route("/recommendations", methods=["POST"])
-def recommendations():
-    prod = request.form.get('prod', '').strip()
-
-    # ✅ SAFE handling of nbr
-    nbr = request.form.get('nbr', '').strip()
-    if not nbr.isdigit():
-        nbr = 5
-    else:
-        nbr = int(nbr)
-
-    # If product input is empty
-    if prod == "":
-        message = "Please enter a product name."
-        return render_template(
-            'main.html',
-            message=message,
-            content_based_rec=pd.DataFrame()   # ✅ IMPORTANT
-        )
-
-    # Get recommendations
-    content_based_rec = content_based_recommendations(
-        train_data, prod, top_n=nbr
-    )
-
-    # If no recommendations found
-    if content_based_rec.empty:
-        message = "No recommendations available for this product."
-        return render_template(
-            'main.html',
-            message=message,
-            content_based_rec=content_based_rec
-        )
-
-    # ✅ Generate random images (based on recommendations length)
-    random_product_image_urls = [
-        random.choice(random_image_urls)
-        for _ in range(len(content_based_rec))
+    results = train_data.iloc[indices][
+        ["Name","Brand","Rating","ReviewCount","ImageURL"]
     ]
 
-    price_list = [40, 50, 60, 70, 100, 122, 106, 50, 30, 50]
+    results["Similarity"] = [round(s[1]*100,2) for s in scores]
 
-    return render_template(
-        'main.html',
-        content_based_rec=content_based_rec,
-        truncate=truncate,
-        random_product_image_urls=random_product_image_urls,
-        random_price=random.choice(price_list)
+    return results
+
+# ---------------- SESSION STATE ----------------
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# ---------------- TITLE ----------------
+st.title("🛒 AI-Powered Product Recommendation System")
+
+st.write(
+"Content-based recommendation system using **TF-IDF and Cosine Similarity**."
+)
+
+st.divider()
+
+# ---------------- SEARCH SECTION ----------------
+col1, col2, col3 = st.columns([4,1,1])
+
+with col1:
+    product_name = st.selectbox(
+        "Search Product",
+        train_data["Name"].unique()
     )
-if __name__ == "__main__":
-    app.run(debug=True)
+
+with col2:
+    num_recommend = st.slider(
+        "Recommendations",
+        1,
+        10,
+        5
+    )
+
+with col3:
+    recommend_button = st.button("Recommend")
+
+# ---------------- RECOMMENDATION SECTION ----------------
+if recommend_button:
+
+    results = recommend(product_name)
+
+    results = results.head(num_recommend)
+
+    st.session_state.history.append(product_name)
+
+    if results.empty:
+        st.warning("Product not found.")
+
+    else:
+
+        st.subheader("🎯 Recommended Products")
+
+        cols = st.columns(num_recommend)
+
+        for i, col in enumerate(cols):
+
+            with col:
+
+                default_img = "https://via.placeholder.com/300?text=No+Image"
+
+                img = results.iloc[i]["ImageURL"]
+
+                if pd.isna(img) or img == "":
+                    img = default_img
+
+                with st.container(border=True):
+
+                    st.image(img, use_container_width=True)
+
+                    st.write(f"**{results.iloc[i]['Name']}**")
+
+                    st.write(f"⭐ Rating: {results.iloc[i]['Rating']}")
+
+                    st.write(f"Brand: {results.iloc[i]['Brand']}")
+
+                    st.write(f"Reviews: {results.iloc[i]['ReviewCount']}")
+
+                    st.write(f"Similarity: {results.iloc[i]['Similarity']}%")
+
+                    st.progress(int(results.iloc[i]["Similarity"]))
+
+# ---------------- TRENDING PRODUCTS ----------------
+st.divider()
+
+st.header("🔥 Trending Products")
+
+cols = st.columns(4)
+
+for i, col in enumerate(cols):
+
+    with col:
+
+        default_img = "https://via.placeholder.com/300?text=No+Image"
+
+        img = trending_products.iloc[i]["ImageURL"]
+
+        if pd.isna(img) or img == "":
+            img = default_img
+
+        with st.container(border=True):
+
+            st.image(img, use_container_width=True)
+
+            st.write(
+                f"**{trending_products.iloc[i]['Name']}**"
+            )
+
+            if "Rating" in trending_products.columns:
+
+                st.write(
+                    f"⭐ {trending_products.iloc[i]['Rating']}"
+                )
+
+# ---------------- SEARCH HISTORY ----------------
+if st.session_state.history:
+
+    st.divider()
+
+    st.subheader("🕘 Your Search History")
+
+    for item in st.session_state.history[-5:]:
+
+        st.write("•", item)
