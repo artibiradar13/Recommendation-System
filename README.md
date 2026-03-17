@@ -1,5 +1,5 @@
 🛒 E-Commerce Product Recommendation System
-
+app link --https://recommendation-system-7bfgflkueexsvcued8s4rm.streamlit.app/
 This project implements a machine learning–based product recommendation system for an e-commerce platform. It recommends relevant products to users using rank-based recommendations, collaborative filtering, and a hybrid recommendation approach.
 
 The system is deployed as an interactive web application using Streamlit, allowing users to search for a product and receive similar product suggestions.
@@ -31,6 +31,3 @@ Ecommerce-Recommendation-System
 🚀 Run the Project
 pip install -r requirements.txt
 streamlit run app.py
-
-Open in browser:
-http://localhost:8501
