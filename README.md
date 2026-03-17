@@ -30,17 +30,6 @@ It recommends relevant products using:
 - 💻 Interactive Streamlit UI  
 
 ---
-
-## 📂 Project Structure
-Ecommerce-Recommendation-System
-│
-├── app.py
-├── models/
-│   ├── clean_data.csv
-│   └── trending_products.csv
-├── requirements.txt
-└── README.md
-
 🚀 Run the Project
 pip install -r requirements.txt
 streamlit run app.py
