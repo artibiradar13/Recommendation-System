@@ -85,9 +85,6 @@ if "history" not in st.session_state:
 # ---------------- TITLE ----------------
 st.title("🛒 AI-Powered Product Recommendation System")
 
-st.write(
-"Content-based recommendation system using **TF-IDF and Cosine Similarity**."
-)
 
 st.divider()
 
